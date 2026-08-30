@@ -91,7 +91,10 @@ frappe.pages['intelligence-chat'].on_page_load = function(wrapper) {
 
         frappe.call({
             method: 'aios_v1.api.ask_intelligence',
-            args: { message: msg },
+            args: { 
+                message: msg 
+            },
+            freeze: false,
             callback: function(r) {
                 $userInput.prop('disabled', false);
                 $sendBtn.prop('disabled', false).html('<span>Kirim</span> 🚀');
@@ -100,14 +103,16 @@ frappe.pages['intelligence-chat'].on_page_load = function(wrapper) {
                 if (r.message && r.message.success) {
                     appendMessage('Assistant', r.message.reply, false);
                 } else {
-                    let errMsg = (r.message && r.message.error) || 'Terjadi kesalahan sistem.';
-                    appendMessage('Assistant', `⚠️ *Gagal mendapatkan respon:* ${errMsg}`, false);
+                    let errMsg = (r.message && r.message.error) || (r.exc ? JSON.stringify(r.exc) : 'Terjadi kesalahan sistem.');
+                    appendMessage('Assistant', `⚠️ *Gagal:* ${errMsg}`, false);
                 }
             },
             error: function(err) {
                 $userInput.prop('disabled', false);
                 $sendBtn.prop('disabled', false).html('<span>Kirim</span> 🚀');
-                appendMessage('Assistant', `⚠️ *Error server:* ${err.statusText || 'Koneksi terputus.'}`, false);
+                let detail = err && err.message ? err.message : (err && err.statusText ? err.statusText : JSON.stringify(err));
+                console.error("Frappe call error detail:", err);
+                appendMessage('Assistant', `⚠️ *Error koneksi:* ${detail}`, false);
             }
         });
     }
