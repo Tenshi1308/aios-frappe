@@ -2,8 +2,9 @@ import frappe
 import requests
 import json
 import re
+from typing import Optional
 
-def safe_parse_json(raw_text):
+def safe_parse_json(raw_text: str) -> dict:
     """
     Parser JSON tahan-banting: membersihkan trailer SSE seperti 'data: [DONE]'
     atau teks tambahan yang ditempelkan gateway AI.
@@ -23,9 +24,10 @@ def safe_parse_json(raw_text):
         raise
 
 @frappe.whitelist(allow_guest=True)
-def ask_intelligence(message=None, context=None):
+def ask_intelligence(message: Optional[str] = None, context: Optional[str] = None) -> dict:
     """
     Endpoint utama Department Intelligence AIOS.
+    Menggunakan Type Annotation sesuai standar Frappe versi terbaru.
     """
     if not message:
         # Fallback reading from frappe.form_dict if passed as form-data
