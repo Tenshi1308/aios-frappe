@@ -223,21 +223,58 @@ def calculate_bpjs_contributions(gross_salary: float) -> Dict[str, Any]:
     }
 )
 def calculate_severance_pay(years_of_service: int, monthly_salary: float, termination_reason: str = "Pensiun") -> Dict[str, Any]:
-    severance_multiplier = min(9, years_of_service + 1)
-    service_award_multiplier = min(8, int(years_of_service / 3) + 2) if years_of_service >= 3 else 0
+    # PP 35/2021 Tabel Pesangon (Pasal 40 ayat 2)
+    base_severance = min(9, max(1, years_of_service + 1))
     
-    total_severance = (severance_multiplier * monthly_salary) + (service_award_multiplier * monthly_salary)
-    if termination_reason == "Resign":
-        total_severance = monthly_salary * 0.5  # Hanya hak penggantian
+    # PP 35/2021 Tabel UPMK (Pasal 40 ayat 3)
+    if years_of_service < 3:
+        base_upmk = 0
+    elif years_of_service < 6:
+        base_upmk = 2
+    elif years_of_service < 9:
+        base_upmk = 3
+    elif years_of_service < 12:
+        base_upmk = 4
+    elif years_of_service < 15:
+        base_upmk = 5
+    elif years_of_service < 18:
+        base_upmk = 6
+    elif years_of_service < 21:
+        base_upmk = 7
+    elif years_of_service < 24:
+        base_upmk = 8
+    else:
+        base_upmk = 10
+
+    # Faktor Pengali berdasarkan Alasan Terminasi (PP 35/2021)
+    if termination_reason == "Pensiun":
+        sev_multiplier = base_severance * 1.75
+        upmk_multiplier = base_upmk * 1.0
+    elif termination_reason == "Efisiensi":
+        sev_multiplier = base_severance * 1.0
+        upmk_multiplier = base_upmk * 1.0
+    elif termination_reason == "Resign":
+        sev_multiplier = 0.0
+        upmk_multiplier = 0.0
+    else:
+        sev_multiplier = float(base_severance)
+        upmk_multiplier = float(base_upmk)
+
+    severance_amt = sev_multiplier * monthly_salary
+    upmk_amt = upmk_multiplier * monthly_salary
+    total_package = severance_amt + upmk_amt
 
     return {
         "status": "SUCCESS",
         "years_of_service": years_of_service,
         "monthly_salary": monthly_salary,
-        "severance_pay": severance_multiplier * monthly_salary,
-        "service_award_pay": service_award_multiplier * monthly_salary,
-        "total_severance_package": total_severance,
-        "message": f"Simulasi Pesangon ({termination_reason} {years_of_service} thn): Rp {total_severance:,.0f}."
+        "termination_reason": termination_reason,
+        "severance_multiplier": sev_multiplier,
+        "upmk_multiplier": upmk_multiplier,
+        "severance_pay": severance_amt,
+        "service_award_pay": upmk_amt,
+        "total_severance_package": total_package,
+        "message": f"Simulasi Pesangon ({termination_reason} {years_of_service} thn): Rp {total_package:,.0f} (Pesangon {sev_multiplier:.2f}x + UPMK {upmk_multiplier:.1f}x)."
     }
 
 # =========================================================================

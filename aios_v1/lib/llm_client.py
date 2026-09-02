@@ -116,7 +116,7 @@ def clean_messages_for_llm(messages):
             })
     return cleaned
 
-def chat_completion(messages, tools=None, max_tokens=2048, temperature=None):
+def chat_completion(messages, tools=None, max_tokens=4096, temperature=None):
     cfg = get_llm_config()
     url = f"{cfg['base_url']}/chat/completions"
     headers = {
@@ -143,6 +143,10 @@ def chat_completion(messages, tools=None, max_tokens=2048, temperature=None):
             
             data = res.json()
             message = data.get("choices", [{}])[0].get("message", {})
+            if not message.get("content"):
+                reasoning_text = message.get("reasoning_content") or message.get("reasoning")
+                if reasoning_text and not message.get("tool_calls"):
+                    message["content"] = reasoning_text
             return message
         except Exception as e:
             if attempt < max_attempts:
