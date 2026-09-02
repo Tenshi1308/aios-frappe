@@ -64,10 +64,10 @@ def get_tools_schema_for_worker(branch: str, worker_key: str = "manager"):
         if not t_branch:
             is_allowed = True
         # 2. AI Manager Orchestrator tools diizinkan untuk semua AI Manager cabang
-        elif t_branch in ["ai_manager", "orchestrator"] and (worker_lower in ["manager", "ai_manager", f"{branch_lower}_manager", "cfo"] or branch_lower in ["orchestrator", "ai_manager"]):
+        elif t_branch in ["ai_manager", "orchestrator"] and (worker_lower in ["manager", "ai_manager", f"{branch_lower}_manager"] or branch_lower in ["orchestrator", "ai_manager"]):
             is_allowed = True
         # 3. Jika worker adalah AI Manager cabang -> dapat akses seluruh tools cabang tsb
-        elif worker_lower in ["manager", "ai_manager", f"{branch_lower}_manager", "cfo"] and t_branch == branch_lower:
+        elif worker_lower in ["manager", "ai_manager", f"{branch_lower}_manager"] and t_branch == branch_lower:
             is_allowed = True
         # 4. Jika sub-agent spesifik -> cek apakah worker_key ada di t_roles
         elif t_branch == branch_lower and (not t_roles or worker_lower in t_roles or any(r in t_roles for r in [worker_lower, worker_lower.replace('_', '-'), worker_lower.replace('-', '_')])):
