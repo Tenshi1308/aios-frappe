@@ -12,7 +12,6 @@ use_json_request_body = True
 # Apps
 # ------------------
 
-# required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -23,7 +22,6 @@ use_json_request_body = True
 # 		"route": "/aios_v1",
 # 		"has_permission": "aios_v1.api.permission.has_app_permission",
 # 	}
-# ]
 
 # The dock, the rail down the left of the desk, is a document rather than a hook. Author it in
 # Manage Dock on a developer-mode site and press Export to App, and it is written to
@@ -89,10 +87,8 @@ use_json_request_body = True
 # ----------
 
 # automatically create page for each record of this doctype
-# website_generators = ["Web Page"]
 
 # automatically load and sync documents of this doctype from downstream apps
-# importable_doctypes = [doctype_1]
 
 # Jinja
 # ----------
@@ -162,8 +158,6 @@ use_json_request_body = True
 # Awesome Bar
 # -----------
 # Extra search results: list of dicts with label, description, route, index.
-# route: ["List", "ToDo"], "/desk/docs/some/page", or "https://example.com"
-# awesomebar_search = ["aios_v1.search.awesomebar_results"]
 
 # Permissions
 # -----------
@@ -192,23 +186,11 @@ use_json_request_body = True
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"aios_v1.tasks.all"
-# 	],
-# 	"daily": [
-# 		"aios_v1.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"aios_v1.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"aios_v1.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"aios_v1.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"hourly": [
+		"aios_v1.lib.draft_manager.expire_old_drafts"
+	]
+}
 
 # Testing
 # -------
@@ -239,24 +221,17 @@ use_json_request_body = True
 
 # exempt linked doctypes from being automatically cancelled
 #
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
 
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------
 
-# ignore_links_on_delete = ["Communication", "ToDo"]
 
 # Request Events
 # ----------------
-# before_request = ["aios_v1.utils.before_request"]
-# after_request = ["aios_v1.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["aios_v1.utils.before_job"]
-# after_job = ["aios_v1.utils.after_job"]
 
-# after_file_upload = ["aios_v1.utils.after_file_upload"]
 
 # User Data Protection
 # --------------------
@@ -265,7 +240,6 @@ use_json_request_body = True
 # 	{
 # 		"doctype": "{doctype_1}",
 # 		"filter_by": "{filter_by}",
-# 		"redact_fields": ["{field_1}", "{field_2}"],
 # 		"partial": 1,
 # 	},
 # 	{
@@ -280,14 +254,12 @@ use_json_request_body = True
 # 	{
 # 		"doctype": "{doctype_4}"
 # 	}
-# ]
 
 # Authentication and authorization
 # --------------------------------
 
 # auth_hooks = [
 # 	"aios_v1.auth.validate"
-# ]
 
 # Automatically update python controller files with type annotations for this app.
 export_python_type_annotations = True
@@ -302,5 +274,11 @@ require_type_annotated_api_methods = True
 # Translation
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
-# ignore_translatable_strings_from = []
 
+
+
+
+
+
+
+before_request = ['aios_v1.api.dispatcher.handle_api_request']

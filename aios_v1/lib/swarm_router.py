@@ -1,0 +1,157 @@
+"""
+Central Swarm Router untuk AIOS Phase 5.
+Mengelola orkestrasi pesan antar AI Manager 9 Cabang ERP.
+Terintegrasi dengan Global Task Ledger, SafetyGuard, dan CircuitBreaker.
+"""
+
+import time
+import frappe
+from typing import Dict, Any, Optional, Callable
+from aios_v1.lib.task_ledger import get_task_ledger
+from aios_v1.lib.safety_guard import SafetyGuard, CircuitBreaker, MAX_CHAIN_DEPTH
+
+# Registry callback handler untuk masing-masing cabang
+_BRANCH_HANDLERS: Dict[str, Callable] = {}
+
+def register_branch_handler(branch: str, handler: Callable):
+    """Mendaftarkan handler eksekusi cabang ke Central Swarm Router."""
+    _BRANCH_HANDLERS[branch.lower()] = handler
+
+class SwarmRouter:
+    def __init__(self, tenant_id: int = 1):
+        self.tenant_id = tenant_id
+        self.ledger = get_task_ledger(tenant_id)
+
+    def route_message(
+        self,
+        task_id: str,
+        from_branch: str,
+        to_branch: str,
+        message_type: str,  # "consultation" | "action_request"
+        payload: Dict[str, Any],
+        priority: str = "NORMAL"
+    ) -> Dict[str, Any]:
+        """
+        Mengarahkan pesan kolaborasi dari cabang asal ke cabang tujuan dengan pemeriksaan keselamatan.
+        """
+        to_branch_norm = to_branch.lower()
+        from_branch_norm = from_branch.lower()
+
+        # 1. Cek Circuit Breaker target cabang
+        is_available, cb_msg = CircuitBreaker.is_branch_available(self.tenant_id, to_branch_norm)
+        if not is_available:
+            self.ledger.add_hop(
+                task_id=task_id,
+                from_branch=from_branch,
+                to_branch=to_branch,
+                message_type=message_type,
+                payload=payload,
+                response={"error": cb_msg},
+                status="FAILED"
+            )
+            return {
+                "ok": False,
+                "status": "CIRCUIT_OPEN",
+                "task_id": task_id,
+                "from_branch": from_branch,
+                "to_branch": to_branch,
+                "message": cb_msg,
+                "response": None
+            }
+
+        # 2. Cek Max Chain Depth (Anti-Infinite Loop)
+        current_depth = self.ledger.get_chain_depth(task_id)
+        is_depth_safe, depth_msg = SafetyGuard.check_chain_depth(current_depth)
+        if not is_depth_safe:
+            self.ledger.add_hop(
+                task_id=task_id,
+                from_branch=from_branch,
+                to_branch=to_branch,
+                message_type=message_type,
+                payload=payload,
+                response={"escalation_reason": depth_msg},
+                status="ESCALATED"
+            )
+            return {
+                "ok": False,
+                "status": "ESCALATED",
+                "task_id": task_id,
+                "from_branch": from_branch,
+                "to_branch": to_branch,
+                "chain_depth": current_depth,
+                "message": depth_msg,
+                "response": None
+            }
+
+        # 3. Eksekusi pesan ke target cabang
+        try:
+            handler = _BRANCH_HANDLERS.get(to_branch_norm)
+            if handler:
+                exec_result = handler(
+                    tenant_id=self.tenant_id,
+                    task_id=task_id,
+                    from_branch=from_branch,
+                    message_type=message_type,
+                    payload=payload
+                )
+            else:
+                # Default mock handler jika cabang belum mendaftarkan custom handler
+                exec_result = {
+                    "acknowledged": True,
+                    "branch": to_branch,
+                    "type": message_type,
+                    "summary": f"Cabang {to_branch} menerima permintaan {message_type} dari {from_branch}."
+                }
+
+            # Catat keberhasilan ke Circuit Breaker dan Ledger
+            CircuitBreaker.record_success(self.tenant_id, to_branch_norm)
+            self.ledger.add_hop(
+                task_id=task_id,
+                from_branch=from_branch,
+                to_branch=to_branch,
+                message_type=message_type,
+                payload=payload,
+                response=exec_result,
+                status="SUCCESS"
+            )
+
+            return {
+                "ok": True,
+                "status": "DELIVERED",
+                "task_id": task_id,
+                "from_branch": from_branch,
+                "to_branch": to_branch,
+                "chain_depth": current_depth + 1,
+                "message_type": message_type,
+                "response": exec_result,
+                "message": f"Pesan {message_type} berhasil diproses oleh cabang {to_branch}."
+            }
+
+        except Exception as e:
+            # Catat kegagalan ke Circuit Breaker
+            cb_state = CircuitBreaker.record_failure(self.tenant_id, to_branch_norm)
+            err_msg = str(e)
+            
+            self.ledger.add_hop(
+                task_id=task_id,
+                from_branch=from_branch,
+                to_branch=to_branch,
+                message_type=message_type,
+                payload=payload,
+                response={"error": err_msg, "circuit_breaker": cb_state},
+                status="FAILED"
+            )
+
+            return {
+                "ok": False,
+                "status": "FAILED",
+                "task_id": task_id,
+                "from_branch": from_branch,
+                "to_branch": to_branch,
+                "chain_depth": current_depth + 1,
+                "message": f"Eksekusi gagal pada cabang {to_branch}: {err_msg}",
+                "response": None
+            }
+
+def get_swarm_router(tenant_id: int = 1) -> SwarmRouter:
+    return SwarmRouter(tenant_id=tenant_id)
