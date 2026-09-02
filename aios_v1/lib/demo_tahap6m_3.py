@@ -77,15 +77,17 @@ def run_demo():
 
         tool_calls = response_msg.get("tool_calls")
         if tool_calls:
+            _ensure_tools_loaded()
+            messages.append(response_msg)
+
             for tc in tool_calls:
-                call_id = tc.get("id", "call_1")
+                call_id = tc.get("id", f"call_{len(messages)}")
                 func_name = tc.get("function", {}).get("name")
                 args_str = tc.get("function", {}).get("arguments", "{}")
                 print(f"\n🎯 [LLM Tool Call]: `{func_name}`")
                 print(f"   Argumen : {args_str}")
 
                 # Eksekusi tool Python nyata
-                _ensure_tools_loaded()
                 args = json.loads(args_str) if isinstance(args_str, str) else args_str
                 tool_func = _TOOL_REGISTRY.get(func_name, {}).get("func")
                 if tool_func:
@@ -95,8 +97,6 @@ def run_demo():
                 
                 print(f"   Hasil Eksekusi Tool: {json.dumps(tool_res, indent=4)}")
 
-                # Kirim balik hasil tool ke LLM untuk sintesis akhir
-                messages.append(response_msg)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call_id,
@@ -108,7 +108,8 @@ def run_demo():
             latency2 = (time.perf_counter() - t1) * 1000
             print(f"\n⚡ Respon Akhir Sintesis LLM ({latency2:.2f} ms):")
             print("-" * 80)
-            print(final_response.get("content"))
+            final_text = final_response.get("content") or final_response.get("reasoning_content") or json.dumps(final_response, indent=2)
+            print(final_text)
             print("-" * 80)
         else:
             print(response_msg.get("content"))
