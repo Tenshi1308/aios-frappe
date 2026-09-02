@@ -1,7 +1,7 @@
 """
-Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.10).
+Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.11).
 Menguji parser YAML frontmatter, path discovery hierarki <branch>/<role>/, smart caching, resolusi RBAC per role,
-serta integritas 78 skills aktif di Orchestrator, Finance, Sales, Material, HR, Manufacturing, Quality, Logistics, dan Maintenance.
+serta integritas seluruh 86 file skills aktif (85 domain ERP + Orchestrator) di 10 cabang direktori.
 """
 
 import os
@@ -50,25 +50,25 @@ class TestSkillsEngine(unittest.TestCase):
     def test_01_parse_frontmatter_valid_and_edge_cases(self):
         """Memastikan parser YAML frontmatter memisahkan header dan body secara presisi."""
         raw_md = """---
-name: "Failure Mode FMEA and MTBF MTTR"
-slug: "failure-mode-fmea-and-mtbf-mttr"
+name: "Corporate Scenario Simulation"
+slug: "corporate-scenario-simulation"
 version: "1.0.0"
-branch: "maintenance"
-role: "reliability_engineer"
+branch: "planning"
+role: "planning_manager"
 tools_required:
-  - "calculate_mtbf_mttr"
+  - "run_what_if_scenario"
 triggers:
-  - "hitung mtbf mttr"
-priority: "high"
+  - "simulasi what if"
+priority: "critical"
 ---
 
 # 1. Peran & Tujuan Bisnis
-Menghitung metrik keandalan mesin.
+Menjalankan simulasi skenario bisnis.
 """
         metadata, body = parse_frontmatter(raw_md)
-        self.assertEqual(metadata.get("name"), "Failure Mode FMEA and MTBF MTTR")
-        self.assertEqual(metadata.get("slug"), "failure-mode-fmea-and-mtbf-mttr")
-        self.assertEqual(metadata.get("role"), "reliability_engineer")
+        self.assertEqual(metadata.get("name"), "Corporate Scenario Simulation")
+        self.assertEqual(metadata.get("slug"), "corporate-scenario-simulation")
+        self.assertEqual(metadata.get("role"), "planning_manager")
         self.assertEqual(len(metadata.get("tools_required", [])), 1)
         self.assertIn("# 1. Peran & Tujuan Bisnis", body)
 
@@ -78,66 +78,66 @@ Menghitung metrik keandalan mesin.
     def test_02_load_skill_from_file_hierarchy(self):
         """Memastikan load_skill_from_file mengekstrak branch dan role dari hierarki direktori."""
         content = """---
-name: "Predictive Maintenance"
-slug: "predictive-maintenance"
+name: "Time Series Trends"
+slug: "time-series-trends"
 version: "1.0.0"
 tools_required:
-  - "predict_equipment_failure"
+  - "run_trend_analysis"
 priority: "high"
 ---
 # Content SOP
-Prediksi kerusakan mesin.
+Analisis deret waktu.
 """
-        file_path = self._create_sample_skill_file("maintenance", "reliability_engineer", "pdm.md", content)
+        file_path = self._create_sample_skill_file("planning", "bi_analyst", "trends.md", content)
         skill = load_skill_from_file(file_path)
 
         self.assertIsNotNone(skill)
-        self.assertEqual(skill["name"], "Predictive Maintenance")
-        self.assertEqual(skill["branch"], "maintenance")
-        self.assertEqual(skill["role"], "reliability_engineer")
-        self.assertIn("reliability_engineer", skill["roles"])
+        self.assertEqual(skill["name"], "Time Series Trends")
+        self.assertEqual(skill["branch"], "planning")
+        self.assertEqual(skill["role"], "bi_analyst")
+        self.assertIn("bi_analyst", skill["roles"])
         self.assertEqual(skill["priority"], "high")
-        self.assertIn("predict_equipment_failure", skill["tools_required"])
+        self.assertIn("run_trend_analysis", skill["tools_required"])
 
     # =========================================================================
     # 3. TEST ROLE VARIANT NORMALIZATION
     # =========================================================================
     def test_03_normalize_role_variants(self):
         """Memastikan variasi nama peran (kebab-case, snake_case, space-case) dikenali setara."""
-        variants_kebab = _normalize_role_variants("reliability-engineer")
-        self.assertIn("reliability-engineer", variants_kebab)
-        self.assertIn("reliability_engineer", variants_kebab)
-        self.assertIn("reliability engineer", variants_kebab)
+        variants_kebab = _normalize_role_variants("planning-manager")
+        self.assertIn("planning-manager", variants_kebab)
+        self.assertIn("planning_manager", variants_kebab)
+        self.assertIn("planning manager", variants_kebab)
 
     # =========================================================================
-    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (MAINTENANCE & CROSS-BRANCH)
+    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (PLANNING & CROSS-BRANCH)
     # =========================================================================
     def test_04_get_skills_for_worker_rbac_option_c(self):
-        """Menguji pemisahan hak akses peran mandiri (Role-Centric Maintenance)."""
-        # 1. Maintenance Technician (2 skills di maintenance/maintenance_technician/)
-        tec_skills = get_skills_for_worker(branch="maintenance", worker_key="maintenance_technician")
-        tec_slugs = [s["slug"] for s in tec_skills]
-        self.assertEqual(len(tec_slugs), 2)
-        self.assertIn("incident-reporting-and-reading-logs", tec_slugs)
-        self.assertIn("work-hours-and-parts-consumption", tec_slugs)
-        self.assertNotIn("work-order-drafting-and-scheduling", tec_slugs)
+        """Menguji pemisahan hak akses peran mandiri (Role-Centric Strategic Planning)."""
+        # 1. BI Analyst (2 skills di planning/bi_analyst/)
+        bia_skills = get_skills_for_worker(branch="planning", worker_key="bi_analyst")
+        bia_slugs = [s["slug"] for s in bia_skills]
+        self.assertEqual(len(bia_slugs), 2)
+        self.assertIn("executive-kpi-dashboard-assembly", bia_slugs)
+        self.assertIn("time-series-trends-and-forecasting", bia_slugs)
+        self.assertNotIn("corporate-scenario-simulation", bia_slugs)
 
-        # 2. Maintenance Planner (2 skills di maintenance/maintenance_planner/)
-        pln_skills = get_skills_for_worker(branch="maintenance", worker_key="maintenance_planner")
-        pln_slugs = [s["slug"] for s in pln_skills]
-        self.assertEqual(len(pln_slugs), 2)
-        self.assertIn("work-order-drafting-and-scheduling", pln_slugs)
-        self.assertIn("backlog-cost-and-equipment-master", pln_slugs)
+        # 2. Report Developer (2 skills di planning/report_developer/)
+        rpt_skills = get_skills_for_worker(branch="planning", worker_key="report_developer")
+        rpt_slugs = [s["slug"] for s in rpt_skills]
+        self.assertEqual(len(rpt_slugs), 2)
+        self.assertIn("custom-report-template-design", rpt_slugs)
+        self.assertIn("executive-narrative-and-scheduling", rpt_slugs)
 
-        # 3. Reliability Engineer (2 skills di maintenance/reliability_engineer/)
-        rel_skills = get_skills_for_worker(branch="maintenance", worker_key="reliability_engineer")
-        rel_slugs = [s["slug"] for s in rel_skills]
-        self.assertEqual(len(rel_slugs), 2)
-        self.assertIn("failure-mode-fmea-and-mtbf-mttr", rel_slugs)
-        self.assertIn("predictive-maintenance-and-rcm", rel_slugs)
+        # 3. Data Steward (2 skills di planning/data_steward/)
+        dst_skills = get_skills_for_worker(branch="planning", worker_key="data_steward")
+        dst_slugs = [s["slug"] for s in dst_skills]
+        self.assertEqual(len(dst_slugs), 2)
+        self.assertIn("data-quality-audit-and-anomaly-detection", dst_slugs)
+        self.assertIn("data-dictionary-and-market-benchmarks", dst_slugs)
 
-        # 4. Maintenance Manager (8 skills Maintenance + 3 skills Orchestrator = 11 skills)
-        mgr_skills = get_skills_for_worker(branch="maintenance", worker_key="manager")
+        # 4. Planning Manager (8 skills Planning + 3 skills Orchestrator = 11 skills)
+        mgr_skills = get_skills_for_worker(branch="planning", worker_key="manager")
         self.assertEqual(len(mgr_skills), 11)
 
     # =========================================================================
@@ -146,9 +146,9 @@ Prediksi kerusakan mesin.
     def test_05_validate_skill_dependencies(self):
         """Memastikan validasi dependensi tools_required mencocokkan ke _TOOL_REGISTRY."""
         valid_skill = {
-            "name": "Maintenance Test",
-            "slug": "test-valid-mnt",
-            "tools_required": ["calculate_mtbf_mttr", "schedule_preventive_maintenance"]
+            "name": "Planning Test",
+            "slug": "test-valid-pln",
+            "tools_required": ["run_what_if_scenario", "generate_kpi_dashboard"]
         }
         res_valid = validate_skill_dependencies(valid_skill)
         self.assertTrue(res_valid["valid"])
@@ -159,25 +159,25 @@ Prediksi kerusakan mesin.
     # =========================================================================
     def test_06_compose_worker_system_prompt(self):
         """Memastikan perakitan SOP ke dalam prompt berjalan rapi."""
-        base_prompt = "Anda adalah Reliability Engineer handal."
-        composed = compose_worker_system_prompt(branch="maintenance", worker_key="reliability_engineer", base_prompt=base_prompt)
+        base_prompt = "Anda adalah Planning Manager berpengalaman."
+        composed = compose_worker_system_prompt(branch="planning", worker_key="planning_manager", base_prompt=base_prompt)
 
-        self.assertIn("Anda adalah Reliability Engineer handal.", composed)
+        self.assertIn("Anda adalah Planning Manager berpengalaman.", composed)
         self.assertIn("[STANDARD OPERATING PROCEDURES & WORKFLOW SKILLS]", composed)
-        self.assertIn("Failure Mode FMEA and MTBF MTTR", composed)
-        self.assertIn("Predictive Maintenance and RCM", composed)
+        self.assertIn("Corporate Scenario Simulation", composed)
+        self.assertIn("OKR Alignment and Variance Governance", composed)
 
     # =========================================================================
-    # 7. TEST REAL SKILLS INTEGRITY (78 SKILLS AKTIF)
+    # 7. TEST REAL SKILLS INTEGRITY (86 SKILLS AKTIF / 100% CANONICAL)
     # =========================================================================
     def test_07_real_skills_integrity(self):
-        """Menguji integritas seluruh 78 file skill nyata di direktori skills/ (Opsi C)."""
+        """Menguji integritas seluruh 86 file skill nyata di direktori skills/ (Opsi C)."""
         all_skills = load_all_skills(force_reload=True)
         
-        # Total harus 78 skills (3 Orch + 11 Fin + 10 Sales + 10 Mat + 11 HR + 7 Mfg + 9 QA + 9 Log + 8 Mnt)
-        self.assertEqual(len(all_skills), 78, f"Ekspektasi 78 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
+        # Total harus 86 skills (3 Orch + 11 Fin + 10 Sales + 10 Mat + 11 HR + 7 Mfg + 9 QA + 9 Log + 8 Mnt + 8 Pln)
+        self.assertEqual(len(all_skills), 86, f"Ekspektasi 86 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
 
-        # Pastikan validasi seluruh tools_required (100% dari 78 skills) valid di _TOOL_REGISTRY
+        # Pastikan validasi seluruh tools_required (100% dari 86 skills) valid di _TOOL_REGISTRY
         validation = validate_skill_dependencies()
         self.assertTrue(validation["valid"], f"Ada missing tools pada skills: {validation.get('missing_tools')}")
         self.assertEqual(len(validation["missing_tools"]), 0)
