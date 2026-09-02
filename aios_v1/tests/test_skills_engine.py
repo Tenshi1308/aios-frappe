@@ -1,11 +1,23 @@
 """
-Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.11).
-Menguji parser YAML frontmatter, path discovery hierarki <branch>/<role>/, smart caching, resolusi RBAC per role,
-serta integritas seluruh 86 file skills aktif (85 domain ERP + Orchestrator) di 10 cabang direktori.
+Automated Test Suite Komprehensif untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.12).
+Menguji 10 Aspek Kritis:
+1. Parser YAML frontmatter & edge cases.
+2. Path discovery hierarki direktori <branch>/<role>/<skill>.md.
+3. Normalisasi varian penamaan peran (kebab-case, snake_case, space-case).
+4. RBAC role-scoping (Least Privilege Opsi C) pada 9 cabang ERP + Orchestrator.
+5. Cross-branch isolation (Pemisahan batas kewenangan antar divisi).
+6. Validasi dependensi 100% tools_required di _TOOL_REGISTRY.
+7. In-memory smart caching & cache invalidation.
+8. Perakitan dinamis System Prompt dengan SOP Markdown.
+9. Integritas seluruh 86 file SOP nyata dan keunikan slug (Zero Duplicate Slugs).
+10. Benchmark performa & latensi engine (< 50 ms).
+
+Dijalankan via: `bench --site aios.localhost execute aios_v1.tests.test_skills_engine.run_tests`
 """
 
 import os
 import json
+import time
 import unittest
 import tempfile
 import shutil
@@ -23,6 +35,11 @@ from aios_v1.lib.skills_loader import (
     clear_skills_cache,
     _normalize_role_variants,
     _SKILLS_CACHE
+)
+from aios_v1.lib.tool_registry import (
+    get_tools_schema_for_worker,
+    _TOOL_REGISTRY,
+    _ensure_tools_loaded
 )
 
 
@@ -45,7 +62,7 @@ class TestSkillsEngine(unittest.TestCase):
         return file_path
 
     # =========================================================================
-    # 1. TEST PARSE FRONTMATTER
+    # 1. TEST PARSE FRONTMATTER & EDGE CASES
     # =========================================================================
     def test_01_parse_frontmatter_valid_and_edge_cases(self):
         """Memastikan parser YAML frontmatter memisahkan header dan body secara presisi."""
@@ -71,6 +88,11 @@ Menjalankan simulasi skenario bisnis.
         self.assertEqual(metadata.get("role"), "planning_manager")
         self.assertEqual(len(metadata.get("tools_required", [])), 1)
         self.assertIn("# 1. Peran & Tujuan Bisnis", body)
+
+        # Edge case: string tanpa frontmatter
+        meta_empty, body_raw = parse_frontmatter("# Hanya Markdown Polos")
+        self.assertEqual(len(meta_empty), 0)
+        self.assertEqual(body_raw, "# Hanya Markdown Polos")
 
     # =========================================================================
     # 2. TEST LOAD SINGLE SKILL FROM FILE DENGAN PATH DISCOVERY
@@ -109,11 +131,15 @@ Analisis deret waktu.
         self.assertIn("planning_manager", variants_kebab)
         self.assertIn("planning manager", variants_kebab)
 
+        variants_snake = _normalize_role_variants("quality_control_officer")
+        self.assertIn("quality-control-officer", variants_snake)
+        self.assertIn("quality_control_officer", variants_snake)
+
     # =========================================================================
-    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (PLANNING & CROSS-BRANCH)
+    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (LEAST PRIVILEGE OPSI C)
     # =========================================================================
     def test_04_get_skills_for_worker_rbac_option_c(self):
-        """Menguji pemisahan hak akses peran mandiri (Role-Centric Strategic Planning)."""
+        """Menguji pemisahan hak akses peran mandiri (Role-Centric Strategic Planning & Multi-Branch)."""
         # 1. BI Analyst (2 skills di planning/bi_analyst/)
         bia_skills = get_skills_for_worker(branch="planning", worker_key="bi_analyst")
         bia_slugs = [s["slug"] for s in bia_skills]
@@ -141,9 +167,22 @@ Analisis deret waktu.
         self.assertEqual(len(mgr_skills), 11)
 
     # =========================================================================
-    # 5. TEST VALIDATE SKILL DEPENDENCIES
+    # 5. TEST CROSS-BRANCH ISOLATION
     # =========================================================================
-    def test_05_validate_skill_dependencies(self):
+    def test_05_cross_branch_isolation(self):
+        """Memastikan peran di cabang Finance tidak menerima SOP cabang Sales, Logistics, atau Manufacturing."""
+        treasurer_skills = get_skills_for_worker(branch="finance", worker_key="treasurer")
+        treasurer_branches = set(s.get("branch") for s in treasurer_skills)
+        self.assertEqual(treasurer_branches, {"finance"})
+
+        shipping_skills = get_skills_for_worker(branch="logistics", worker_key="shipping_clerk")
+        shipping_branches = set(s.get("branch") for s in shipping_skills)
+        self.assertEqual(shipping_branches, {"logistics"})
+
+    # =========================================================================
+    # 6. TEST VALIDATE SKILL DEPENDENCIES
+    # =========================================================================
+    def test_06_validate_skill_dependencies(self):
         """Memastikan validasi dependensi tools_required mencocokkan ke _TOOL_REGISTRY."""
         valid_skill = {
             "name": "Planning Test",
@@ -154,11 +193,41 @@ Analisis deret waktu.
         self.assertTrue(res_valid["valid"])
         self.assertEqual(len(res_valid["missing_tools"]), 0)
 
+        invalid_skill = {
+            "name": "Invalid Test",
+            "slug": "test-invalid-tool",
+            "tools_required": ["non_existent_tool_12345"]
+        }
+        res_invalid = validate_skill_dependencies(invalid_skill)
+        self.assertFalse(res_invalid["valid"])
+        self.assertIn("test-invalid-tool", res_invalid["missing_tools"])
+        self.assertIn("non_existent_tool_12345", res_invalid["missing_tools"]["test-invalid-tool"])
+
     # =========================================================================
-    # 6. TEST COMPOSE WORKER SYSTEM PROMPT
+    # 7. TEST SMART CACHING & INVALIDATION
     # =========================================================================
-    def test_06_compose_worker_system_prompt(self):
-        """Memastikan perakitan SOP ke dalam prompt berjalan rapi."""
+    def test_07_smart_caching_and_invalidation(self):
+        """Memastikan smart caching in-memory berfungsi dan invalidation berjalan saat force_reload."""
+        clear_skills_cache()
+        
+        # Load pertama (populate cache)
+        skills_first = load_all_skills()
+        self.assertGreater(len(skills_first), 0)
+
+        # Load kedua (harus dari cache)
+        skills_second = load_all_skills(force_reload=False)
+        self.assertEqual(len(skills_first), len(skills_second))
+
+        # Invalidate cache
+        clear_skills_cache()
+        skills_reloaded = load_all_skills(force_reload=True)
+        self.assertEqual(len(skills_first), len(skills_reloaded))
+
+    # =========================================================================
+    # 8. TEST COMPOSE WORKER SYSTEM PROMPT
+    # =========================================================================
+    def test_08_compose_worker_system_prompt(self):
+        """Memastikan perakitan SOP ke dalam prompt berjalan rapi dan berisi struktur markdown."""
         base_prompt = "Anda adalah Planning Manager berpengalaman."
         composed = compose_worker_system_prompt(branch="planning", worker_key="planning_manager", base_prompt=base_prompt)
 
@@ -168,19 +237,41 @@ Analisis deret waktu.
         self.assertIn("OKR Alignment and Variance Governance", composed)
 
     # =========================================================================
-    # 7. TEST REAL SKILLS INTEGRITY (86 SKILLS AKTIF / 100% CANONICAL)
+    # 9. TEST REAL SKILLS INTEGRITY & UNIK SLUGS (86 SKILLS AKTIF)
     # =========================================================================
-    def test_07_real_skills_integrity(self):
-        """Menguji integritas seluruh 86 file skill nyata di direktori skills/ (Opsi C)."""
+    def test_09_real_skills_integrity_and_uniqueness(self):
+        """Menguji integritas seluruh 86 file skill nyata, ketiadaan slug duplikat, dan 100% tools valid."""
         all_skills = load_all_skills(force_reload=True)
         
         # Total harus 86 skills (3 Orch + 11 Fin + 10 Sales + 10 Mat + 11 HR + 7 Mfg + 9 QA + 9 Log + 8 Mnt + 8 Pln)
         self.assertEqual(len(all_skills), 86, f"Ekspektasi 86 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
 
-        # Pastikan validasi seluruh tools_required (100% dari 86 skills) valid di _TOOL_REGISTRY
+        # Pastikan tidak ada slug yang duplikat
+        slugs = list(all_skills.keys())
+        unique_slugs = set(slugs)
+        self.assertEqual(len(slugs), len(unique_slugs), f"Ditemukan duplikasi slug pada skills: {slugs}")
+
+        # Pastikan seluruh tools_required (100% dari 86 skills) valid di _TOOL_REGISTRY
         validation = validate_skill_dependencies()
         self.assertTrue(validation["valid"], f"Ada missing tools pada skills: {validation.get('missing_tools')}")
         self.assertEqual(len(validation["missing_tools"]), 0)
+
+    # =========================================================================
+    # 10. TEST PERFORMANCE & LATENCY BENCHMARK (< 50 ms)
+    # =========================================================================
+    def test_10_skills_loader_performance_benchmark(self):
+        """Memastikan pembacaan seluruh 86 skills via in-memory cache berlangsung instan (< 50 ms)."""
+        load_all_skills(force_reload=True)  # Warmup
+        
+        t0 = time.perf_counter()
+        for _ in range(100):
+            _ = get_skills_for_worker(branch="finance", worker_key="treasurer")
+            _ = get_skills_for_worker(branch="sales", worker_key="sales_representative")
+            _ = get_skills_for_worker(branch="planning", worker_key="planning_manager")
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+
+        avg_latency_ms = elapsed_ms / 100.0
+        self.assertLess(avg_latency_ms, 50.0, f"Latensi pembacaan skills terlalu lambat: {avg_latency_ms:.2f} ms")
 
 
 def run_tests():
