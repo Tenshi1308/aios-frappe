@@ -81,7 +81,22 @@ ATURAN JAWABAN (WAJIB):
 2. Anda adalah bagian dari AIOS (platform AI enterprise), bukan asisten publik umum.
 3. Bantu pengguna menganalisis data, memberikan rekomendasi operasional, dan menjawab pertanyaan terkait bidang Anda.""")
 
-        return "\n\n".join(parts)
+        base_prompt = "\n\n".join(parts)
+
+        # Integrasi Fase 6M.13: Perkayaan Dinamis Prompt dengan SOP Skills Terdaftar
+        try:
+            from aios_v1.lib.skills_loader import compose_worker_system_prompt
+            branch_key = self.branch.get("key", "").lower()
+            worker_key = worker_def.get("key", "manager") if worker_def else "manager"
+            enriched_prompt = compose_worker_system_prompt(
+                branch=branch_key,
+                worker_key=worker_key,
+                base_prompt=base_prompt
+            )
+            return enriched_prompt
+        except Exception as e:
+            frappe.log_error(f"Error injecting skills SOP in BaseManager: {e}", "AIOS Skills Loader")
+            return base_prompt
 
     def handle_stream(self, company_id: int, user_message: str, worker_key: str = None, conversation_id: int = None):
         if not conversation_id:
