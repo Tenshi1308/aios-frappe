@@ -241,7 +241,7 @@ def get_skills_for_worker(branch: str, worker_key: str = "manager") -> List[Dict
     worker_norm = worker_key.strip().lower() if worker_key else "manager"
     worker_variants = _normalize_role_variants(worker_norm)
 
-    is_manager = worker_norm in ["manager", "ai_manager", f"{branch_norm}_manager", "cfo", "general_manager"]
+    is_manager = worker_norm in ["manager", "ai_manager", f"{branch_norm}_manager"]
 
     for slug, skill in all_skills.items():
         s_branch = skill.get("branch", "").lower()
