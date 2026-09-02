@@ -81,22 +81,7 @@ ATURAN JAWABAN (WAJIB):
 2. Anda adalah bagian dari AIOS (platform AI enterprise), bukan asisten publik umum.
 3. Bantu pengguna menganalisis data, memberikan rekomendasi operasional, dan menjawab pertanyaan terkait bidang Anda.""")
 
-        base_prompt = "\n\n".join(parts)
-
-        # Integrasi Fase 6M.13: Perkayaan Dinamis Prompt dengan SOP Skills Terdaftar
-        try:
-            from aios_v1.lib.skills_loader import compose_worker_system_prompt
-            branch_key = self.branch.get("key", "").lower()
-            worker_key = worker_def.get("key", "manager") if worker_def else "manager"
-            enriched_prompt = compose_worker_system_prompt(
-                branch=branch_key,
-                worker_key=worker_key,
-                base_prompt=base_prompt
-            )
-            return enriched_prompt
-        except Exception as e:
-            frappe.log_error(f"Error injecting skills SOP in BaseManager: {e}", "AIOS Skills Loader")
-            return base_prompt
+        return "\n\n".join(parts)
 
     def handle_stream(self, company_id: int, user_message: str, worker_key: str = None, conversation_id: int = None):
         if not conversation_id:
@@ -159,6 +144,13 @@ ATURAN JAWABAN (WAJIB):
 
         llm_messages.append({"role": "user", "content": user_message})
 
+        # Estimasi input tokens dari seluruh payload messages
+        total_input_chars = sum(len(msg.get("content", "")) for msg in llm_messages)
+        est_input_tokens = max(1, int(total_input_chars / 3.8))
+        user_msg_doc.input_tokens = est_input_tokens
+        user_msg_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
         # 4. Stream Jawaban dari LLM
         full_reply = ""
         delegated_to = worker_def["jobRole"] if worker_def else "Manager"
@@ -167,14 +159,18 @@ ATURAN JAWABAN (WAJIB):
             full_reply += delta
             yield f"data: {json.dumps({'type': 'delta', 'text': delta})}\n\n"
 
+        # Estimasi output tokens dari teks balasan AI
+        est_output_tokens = max(1, int(len(full_reply) / 3.8))
+
         # 5. Simpan Pesan Assistant ke DocType AIOS Message
         asst_msg_doc = frappe.new_doc("AIOS Message")
         asst_msg_doc.conversation = str(conversation_id)
         asst_msg_doc.role = "manager" if not worker_def else "worker"
         asst_msg_doc.worker_key = worker_key or "manager"
         asst_msg_doc.content = full_reply
+        asst_msg_doc.output_tokens = est_output_tokens
         asst_msg_doc.insert(ignore_permissions=True)
         frappe.db.commit()
 
         # 6. Kirim Done Event
-        yield f"data: {json.dumps({'type': 'done', 'conversationId': conversation_id, 'delegatedTo': delegated_to, 'dataUsed': data_used, 'limitation': '', 'tokens': len(full_reply.split())})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'conversationId': conversation_id, 'delegatedTo': delegated_to, 'dataUsed': data_used, 'limitation': '', 'tokens': est_output_tokens})}\n\n"

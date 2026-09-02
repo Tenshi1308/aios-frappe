@@ -615,20 +615,38 @@ def handle_api_request():
         if not sess or sess.get("role") != "DEVELOPER":
             return json_response({"error": "Akses ditolak"}, 403)
 
-        if path == "api/monitoring/usage":
+        parts = path.split("/")
+
+        # GET /api/monitoring/usage (Summary per client)
+        if len(parts) == 3 and parts[2] == "usage" and method == "GET":
             tenants = frappe.get_all("AIOS Tenant", filters={"role": "CLIENT"}, fields=["name", "tenant_name", "status"])
             companies = []
             for t in tenants:
                 c_id = int(t.name) if str(t.name).isdigit() else 1
+                convs = frappe.get_all("AIOS Conversation", filters={"tenant": str(t.name)}, fields=["name"])
+                conv_names = [c.name for c in convs]
+                total_in = 0
+                total_out = 0
+                if conv_names:
+                    msgs = frappe.get_all(
+                        "AIOS Message",
+                        filters={"conversation": ["in", conv_names]},
+                        fields=["input_tokens", "output_tokens"]
+                    )
+                    total_in = sum(int(m.get("input_tokens") or 0) for m in msgs)
+                    total_out = sum(int(m.get("output_tokens") or 0) for m in msgs)
+
+                cost_idr = round((total_in / 1000.0) * 50 + (total_out / 1000.0) * 150)
                 companies.append({
                     "id": c_id,
                     "name": t.tenant_name,
                     "status": t.status,
-                    "conversations": 5,
-                    "inputTokens": 2450,
-                    "outputTokens": 1320,
-                    "costIdr": 310
+                    "conversations": len(convs),
+                    "inputTokens": total_in,
+                    "outputTokens": total_out,
+                    "costIdr": cost_idr
                 })
+
             return json_response({
                 "pricing": {
                     "per1kInputIdr": 50,
@@ -638,8 +656,182 @@ def handle_api_request():
                 "companies": companies
             })
 
+        # GET /api/monitoring/usage/<company_id> (Drill-down per branch)
+        elif len(parts) == 4 and parts[2] == "usage" and method == "GET":
+            company_id = parts[3]
+            try:
+                tenant = frappe.db.get_value("AIOS Tenant", {"name": str(company_id)}, ["name", "tenant_name", "status"], as_dict=True)
+                if not tenant:
+                    all_clients = frappe.get_all("AIOS Tenant", filters={"role": "CLIENT"}, fields=["name", "tenant_name", "status"])
+                    if all_clients:
+                        tenant = all_clients[0]
+
+                tenant_id = tenant.name if tenant else company_id
+                convs = frappe.get_all("AIOS Conversation", filters={"tenant": str(tenant_id)}, fields=["name", "branch"])
+
+                branch_convs = {}
+                for c in convs:
+                    b_key = c.branch or "GENERAL"
+                    branch_convs.setdefault(b_key, []).append(c.name)
+
+                branches_list = []
+                for b_name, c_names in branch_convs.items():
+                    msgs = frappe.get_all(
+                        "AIOS Message",
+                        filters={"conversation": ["in", c_names]},
+                        fields=["input_tokens", "output_tokens"]
+                    )
+                    tin = sum(int(m.get("input_tokens") or 0) for m in msgs)
+                    tout = sum(int(m.get("output_tokens") or 0) for m in msgs)
+                    cost = round((tin / 1000.0) * 50 + (tout / 1000.0) * 150)
+                    branches_list.append({
+                        "branch": b_name,
+                        "inputTokens": tin,
+                        "outputTokens": tout,
+                        "calls": len(msgs),
+                        "costIdr": cost
+                    })
+
+                # Urutkan berdasarkan pemakaian token terbesar
+                branches_list.sort(key=lambda x: x["inputTokens"] + x["outputTokens"], reverse=True)
+
+                return json_response({
+                    "company": {
+                        "id": int(company_id) if str(company_id).isdigit() else 1,
+                        "name": tenant.get("tenant_name") if tenant else "Client",
+                        "status": tenant.get("status") if tenant else "ACTIVE"
+                    },
+                    "branches": branches_list
+                })
+            except CustomAPIResponse:
+                raise
+            except Exception as e:
+                return json_response({"error": f"Gagal memuat monitoring branch: {str(e)}"}, 500)
+
+        # GET /api/monitoring/usage/<company_id>/<branch> (Drill-down per worker)
+        elif len(parts) >= 5 and parts[2] == "usage" and method == "GET":
+            company_id = parts[3]
+            branch = parts[4]
+            try:
+                tenant = frappe.db.get_value("AIOS Tenant", {"name": str(company_id)}, ["name"], as_dict=True)
+                tenant_id = tenant.name if tenant else company_id
+
+                convs = frappe.get_all("AIOS Conversation", filters={"tenant": str(tenant_id), "branch": branch}, fields=["name"])
+                c_names = [c.name for c in convs]
+                workers_list = []
+
+                if c_names:
+                    msgs = frappe.get_all(
+                        "AIOS Message",
+                        filters={"conversation": ["in", c_names]},
+                        fields=["worker_key", "input_tokens", "output_tokens"]
+                    )
+                    worker_groups = {}
+                    for m in msgs:
+                        w_key = m.get("worker_key") or "manager"
+                        worker_groups.setdefault(w_key, []).append(m)
+
+                    for w_key, w_msgs in worker_groups.items():
+                        tin = sum(int(m.get("input_tokens") or 0) for m in w_msgs)
+                        tout = sum(int(m.get("output_tokens") or 0) for m in w_msgs)
+                        cost = round((tin / 1000.0) * 50 + (tout / 1000.0) * 150)
+                        workers_list.append({
+                            "workerKey": w_key,
+                            "inputTokens": tin,
+                            "outputTokens": tout,
+                            "calls": len(w_msgs),
+                            "costIdr": cost
+                        })
+
+                workers_list.sort(key=lambda x: x["inputTokens"] + x["outputTokens"], reverse=True)
+
+                return json_response({
+                    "branch": branch,
+                    "workers": workers_list
+                })
+            except CustomAPIResponse:
+                raise
+            except Exception as e:
+                return json_response({"error": f"Gagal memuat monitoring worker: {str(e)}"}, 500)
+
     # 6. CHAT ROUTES
-    elif path.startswith("api/chat/"):
+    elif path.startswith("api/chat"):
+        # POST /api/chat/parse-pdf (Ekstrak isi teks dari file PDF)
+        if path == "api/chat/parse-pdf" and method == "POST":
+            uploaded_file = None
+            filename = "document.pdf"
+            file_bytes = b""
+
+            if hasattr(frappe.request, "files") and frappe.request.files:
+                uploaded_file = frappe.request.files.get("file")
+                if not uploaded_file and len(frappe.request.files) > 0:
+                    uploaded_file = next(iter(frappe.request.files.values()))
+
+            if uploaded_file is not None:
+                filename = getattr(uploaded_file, "filename", "document.pdf")
+                if hasattr(uploaded_file, "stream"):
+                    try:
+                        uploaded_file.stream.seek(0)
+                        file_bytes = uploaded_file.stream.read()
+                    except Exception:
+                        pass
+                if not file_bytes and hasattr(uploaded_file, "read"):
+                    try:
+                        file_bytes = uploaded_file.read()
+                    except Exception:
+                        pass
+
+            if not file_bytes and hasattr(frappe.request, "data") and frappe.request.data:
+                file_bytes = frappe.request.data
+
+            # Jika file_bytes dibungkus multipart boundary, potong ke byte PDF murni (%PDF ... %%EOF)
+            if file_bytes and not file_bytes.startswith(b"%PDF"):
+                pdf_start = file_bytes.find(b"%PDF")
+                if pdf_start != -1:
+                    pdf_end = file_bytes.rfind(b"%%EOF")
+                    if pdf_end != -1:
+                        file_bytes = file_bytes[pdf_start:pdf_end + 5]
+                    else:
+                        file_bytes = file_bytes[pdf_start:]
+
+            if not file_bytes:
+                return json_response({
+                    "error": "File PDF kosong atau tidak ditemukan",
+                    "files": list(frappe.request.files.keys()) if hasattr(frappe.request, "files") else []
+                }, 400)
+
+            try:
+                import io
+                from pypdf import PdfReader
+
+                reader = PdfReader(io.BytesIO(file_bytes), strict=False)
+                pages_text = []
+                total_pages = len(reader.pages)
+
+                for idx, page in enumerate(reader.pages):
+                    try:
+                        p_txt = page.extract_text() or ""
+                    except Exception:
+                        p_txt = ""
+                    if p_txt.strip():
+                        pages_text.append(f"--- [Halaman {idx + 1}] ---\n{p_txt.strip()}")
+
+                full_text = "\n\n".join(pages_text).strip()
+                if not full_text:
+                    full_text = f"Dokumen PDF '{filename}' ({total_pages} halaman) berhasil dibaca, namun tidak ditemukan teks langsung (kemungkinan formulir hasil pindaian/scan atau berbasis gambar)."
+
+            except CustomAPIResponse:
+                raise
+            except Exception as e:
+                return json_response({"error": f"Gagal membaca dokumen PDF: {str(e)}"}, 500)
+
+            return json_response({
+                "success": True,
+                "filename": filename,
+                "pages": total_pages,
+                "text": full_text
+            })
+
         parts = path.split("/")
         if len(parts) >= 3:
             branch = parts[2]

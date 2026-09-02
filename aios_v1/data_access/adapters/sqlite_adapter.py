@@ -6,7 +6,6 @@ from .base import BaseDatabaseAdapter
 class SQLiteAdapter(BaseDatabaseAdapter):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.engine = "sqlite"
         raw_path = config.get("path") or config.get("file_path", "")
         self.file_path = os.path.expanduser(raw_path) if raw_path else ""
 

@@ -8,7 +8,6 @@ from typing import Dict, Any, List, Optional
 class BaseDatabaseAdapter(ABC):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.engine = (config.get("engine") or "sqlite").lower()
 
     @abstractmethod
     def test_connection(self) -> Dict[str, Any]:

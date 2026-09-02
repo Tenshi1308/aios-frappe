@@ -186,11 +186,18 @@ use_json_request_body = True
 # Scheduled Tasks
 # ---------------
 
-scheduler_events = {
-	"hourly": [
-		"aios_v1.lib.draft_manager.expire_old_drafts"
-	]
-}
+# scheduler_events = {
+# 	"all": [
+# 		"aios_v1.tasks.all"
+# 	"daily": [
+# 		"aios_v1.tasks.daily"
+# 	"hourly": [
+# 		"aios_v1.tasks.hourly"
+# 	"weekly": [
+# 		"aios_v1.tasks.weekly"
+# 	"monthly": [
+# 		"aios_v1.tasks.monthly"
+# }
 
 # Testing
 # -------
