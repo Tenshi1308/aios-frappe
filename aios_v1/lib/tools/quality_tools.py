@@ -356,13 +356,23 @@ def define_inspection_plan(product_id: str, checkpoints: List[Dict[str, Any]], t
         "lower_spec_limit": {"type": "number", "description": "Batas Spesifikasi Bawah (LSL)"}
     }
 )
-def run_spc_analysis(sample_measurements: List[float], upper_spec_limit: float, lower_spec_limit: float) -> Dict[str, Any]:
-    n = len(sample_measurements)
+def run_spc_analysis(sample_measurements: Any, upper_spec_limit: float, lower_spec_limit: float) -> Dict[str, Any]:
+    if isinstance(sample_measurements, str):
+        try:
+            # Bersihkan karakter kontrol atau unescape
+            cleaned_str = sample_measurements.replace('\x03', '').replace('\u0003', '')
+            sample_measurements = json.loads(cleaned_str)
+        except Exception:
+            import re
+            sample_measurements = [float(x) for x in re.findall(r"[-+]?(?:\d*\.\d+|\d+)", sample_measurements)]
+
+    samples = [float(x) for x in sample_measurements if x is not None]
+    n = len(samples)
     if n == 0:
         return {"status": "ERROR", "message": "Daftar sampel pengukuran tidak boleh kosong."}
     
-    mean = sum(sample_measurements) / n
-    variance = sum((x - mean) ** 2 for x in sample_measurements) / max(n - 1, 1)
+    mean = sum(samples) / n
+    variance = sum((x - mean) ** 2 for x in samples) / max(n - 1, 1)
     stdev = math.sqrt(variance) or 0.001
 
     cp = (upper_spec_limit - lower_spec_limit) / (6 * stdev)
