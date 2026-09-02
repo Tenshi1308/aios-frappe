@@ -1,7 +1,7 @@
 """
-Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.5).
+Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.6).
 Menguji parser YAML frontmatter, path discovery hierarki <branch>/<role>/, smart caching, resolusi RBAC per role,
-serta integritas 34 skills aktif di Orchestrator, Finance, Sales, dan Material.
+serta integritas 45 skills aktif di Orchestrator, Finance, Sales, Material, dan HR.
 """
 
 import os
@@ -50,28 +50,26 @@ class TestSkillsEngine(unittest.TestCase):
     def test_01_parse_frontmatter_valid_and_edge_cases(self):
         """Memastikan parser YAML frontmatter memisahkan header dan body secara presisi."""
         raw_md = """---
-name: "Financial Statement Analysis"
-slug: "financial-statement-analysis"
+name: "Job Requisition and Posting"
+slug: "job-requisition-and-posting"
 version: "1.0.0"
-branch: "finance"
-role: "financial_analyst"
+branch: "hr"
+role: "recruiter"
 tools_required:
-  - "generate_pnl_statement"
-  - "calculate_financial_ratios"
+  - "post_job_vacancy"
 triggers:
-  - "analisis rasio"
-  - "laporan pnl"
+  - "buka lowongan"
 priority: "high"
 ---
 
 # 1. Peran & Tujuan Bisnis
-Menilai kesehatan finansial perusahaan.
+Mengatur pembukaan lowongan pekerjaan.
 """
         metadata, body = parse_frontmatter(raw_md)
-        self.assertEqual(metadata.get("name"), "Financial Statement Analysis")
-        self.assertEqual(metadata.get("slug"), "financial-statement-analysis")
-        self.assertEqual(metadata.get("role"), "financial_analyst")
-        self.assertEqual(len(metadata.get("tools_required", [])), 2)
+        self.assertEqual(metadata.get("name"), "Job Requisition and Posting")
+        self.assertEqual(metadata.get("slug"), "job-requisition-and-posting")
+        self.assertEqual(metadata.get("role"), "recruiter")
+        self.assertEqual(len(metadata.get("tools_required", [])), 1)
         self.assertIn("# 1. Peran & Tujuan Bisnis", body)
 
     # =========================================================================
@@ -80,68 +78,75 @@ Menilai kesehatan finansial perusahaan.
     def test_02_load_skill_from_file_hierarchy(self):
         """Memastikan load_skill_from_file mengekstrak branch dan role dari hierarki direktori."""
         content = """---
-name: "Cashflow Forecasting"
-slug: "cashflow-forecasting"
+name: "Batch Payroll"
+slug: "batch-payroll"
 version: "1.0.0"
 tools_required:
-  - "forecast_30d_cashflow"
+  - "calculate_payroll_batch"
 priority: "critical"
 ---
 # Content SOP
-Periksa kas harian.
+Hitung gaji bulanan.
 """
-        file_path = self._create_sample_skill_file("finance", "treasurer", "cashflow.md", content)
+        file_path = self._create_sample_skill_file("hr", "payroll_officer", "payroll.md", content)
         skill = load_skill_from_file(file_path)
 
         self.assertIsNotNone(skill)
-        self.assertEqual(skill["name"], "Cashflow Forecasting")
-        self.assertEqual(skill["branch"], "finance")
-        self.assertEqual(skill["role"], "treasurer")
-        self.assertIn("treasurer", skill["roles"])
+        self.assertEqual(skill["name"], "Batch Payroll")
+        self.assertEqual(skill["branch"], "hr")
+        self.assertEqual(skill["role"], "payroll_officer")
+        self.assertIn("payroll_officer", skill["roles"])
         self.assertEqual(skill["priority"], "critical")
-        self.assertIn("forecast_30d_cashflow", skill["tools_required"])
+        self.assertIn("calculate_payroll_batch", skill["tools_required"])
 
     # =========================================================================
     # 3. TEST ROLE VARIANT NORMALIZATION
     # =========================================================================
     def test_03_normalize_role_variants(self):
         """Memastikan variasi nama peran (kebab-case, snake_case, space-case) dikenali setara."""
-        variants_kebab = _normalize_role_variants("purchasing-officer")
-        self.assertIn("purchasing-officer", variants_kebab)
-        self.assertIn("purchasing_officer", variants_kebab)
-        self.assertIn("purchasing officer", variants_kebab)
+        variants_kebab = _normalize_role_variants("payroll-officer")
+        self.assertIn("payroll-officer", variants_kebab)
+        self.assertIn("payroll_officer", variants_kebab)
+        self.assertIn("payroll officer", variants_kebab)
 
     # =========================================================================
-    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (MATERIAL & CROSS-BRANCH)
+    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (HR & CROSS-BRANCH)
     # =========================================================================
     def test_04_get_skills_for_worker_rbac_option_c(self):
         """Menguji pemisahan hak akses peran mandiri (Role-Centric)."""
-        # 1. Inventory Clerk (3 skills di material/inventory_clerk/)
-        ic_skills = get_skills_for_worker(branch="material", worker_key="inventory_clerk")
-        ic_slugs = [s["slug"] for s in ic_skills]
-        self.assertEqual(len(ic_slugs), 3)
-        self.assertIn("stock-level-and-availability-check", ic_slugs)
-        self.assertIn("goods-receipt-verification", ic_slugs)
-        self.assertIn("physical-inventory-adjustment", ic_slugs)
-        self.assertNotIn("purchase-order-procurement", ic_slugs)
+        # 1. Recruiter (2 skills di hr/recruiter/)
+        rec_skills = get_skills_for_worker(branch="hr", worker_key="recruiter")
+        rec_slugs = [s["slug"] for s in rec_skills]
+        self.assertEqual(len(rec_slugs), 2)
+        self.assertIn("job-requisition-and-posting", rec_slugs)
+        self.assertIn("applicant-screening-and-ranking", rec_slugs)
+        self.assertNotIn("batch-payroll-processing", rec_slugs)
 
-        # 2. Purchasing Officer (2 skills di material/purchasing_officer/)
-        po_skills = get_skills_for_worker(branch="material", worker_key="purchasing_officer")
-        po_slugs = [s["slug"] for s in po_skills]
-        self.assertEqual(len(po_slugs), 2)
-        self.assertIn("purchase-order-procurement", po_slugs)
-        self.assertIn("purchase-order-tracking-and-status", po_slugs)
+        # 2. Payroll Officer (3 skills di hr/payroll_officer/)
+        pay_skills = get_skills_for_worker(branch="hr", worker_key="payroll_officer")
+        pay_slugs = [s["slug"] for s in pay_skills]
+        self.assertEqual(len(pay_slugs), 3)
+        self.assertIn("batch-payroll-processing", pay_slugs)
+        self.assertIn("overtime-and-bpjs-statutory-deductions", pay_slugs)
+        self.assertIn("severance-and-termination-compensation", pay_slugs)
 
-        # 3. Sourcing Specialist (2 skills)
-        src_skills = get_skills_for_worker(branch="material", worker_key="sourcing_specialist")
-        src_slugs = [s["slug"] for s in src_skills]
-        self.assertEqual(len(src_slugs), 2)
-        self.assertIn("rfq-and-vendor-quote-comparison", src_slugs)
-        self.assertIn("vendor-sla-and-abc-classification", src_slugs)
+        # 3. HR Staff (3 skills di hr/hr_staff/)
+        hrs_skills = get_skills_for_worker(branch="hr", worker_key="hr_staff")
+        hrs_slugs = [s["slug"] for s in hrs_skills]
+        self.assertEqual(len(hrs_slugs), 3)
+        self.assertIn("employee-master-onboarding", hrs_slugs)
+        self.assertIn("attendance-and-leave-administration", hrs_slugs)
+        self.assertIn("employee-benefits-and-claims", hrs_slugs)
 
-        # 4. Material Manager (10 skills Material + 3 skills Orchestrator = 13 skills)
-        mgr_skills = get_skills_for_worker(branch="material", worker_key="manager")
-        self.assertEqual(len(mgr_skills), 13)
+        # 4. Training Specialist (1 skill)
+        trn_skills = get_skills_for_worker(branch="hr", worker_key="training_specialist")
+        trn_slugs = [s["slug"] for s in trn_skills]
+        self.assertEqual(len(trn_slugs), 1)
+        self.assertIn("employee-training-program-lifecycle", trn_slugs)
+
+        # 5. HR Manager (11 skills HR + 3 skills Orchestrator = 14 skills)
+        mgr_skills = get_skills_for_worker(branch="hr", worker_key="manager")
+        self.assertEqual(len(mgr_skills), 14)
 
     # =========================================================================
     # 5. TEST VALIDATE SKILL DEPENDENCIES
@@ -149,9 +154,9 @@ Periksa kas harian.
     def test_05_validate_skill_dependencies(self):
         """Memastikan validasi dependensi tools_required mencocokkan ke _TOOL_REGISTRY."""
         valid_skill = {
-            "name": "Financial Ratio Test",
+            "name": "HR Test",
             "slug": "test-valid",
-            "tools_required": ["calculate_financial_ratios", "generate_pnl_statement"]
+            "tools_required": ["post_job_vacancy", "screen_applicant_profile"]
         }
         res_valid = validate_skill_dependencies(valid_skill)
         self.assertTrue(res_valid["valid"])
@@ -162,25 +167,25 @@ Periksa kas harian.
     # =========================================================================
     def test_06_compose_worker_system_prompt(self):
         """Memastikan perakitan SOP ke dalam prompt berjalan rapi."""
-        base_prompt = "Anda adalah Purchasing Officer profesional."
-        composed = compose_worker_system_prompt(branch="material", worker_key="purchasing_officer", base_prompt=base_prompt)
+        base_prompt = "Anda adalah Recruiter profesional."
+        composed = compose_worker_system_prompt(branch="hr", worker_key="recruiter", base_prompt=base_prompt)
 
-        self.assertIn("Anda adalah Purchasing Officer profesional.", composed)
+        self.assertIn("Anda adalah Recruiter profesional.", composed)
         self.assertIn("[STANDARD OPERATING PROCEDURES & WORKFLOW SKILLS]", composed)
-        self.assertIn("Purchase Order Procurement", composed)
-        self.assertIn("Purchase Order Tracking", composed)
+        self.assertIn("Job Requisition and Posting", composed)
+        self.assertIn("Applicant Screening and Ranking", composed)
 
     # =========================================================================
-    # 7. TEST REAL SKILLS INTEGRITY (34 SKILLS: ORCHESTRATOR, FINANCE, SALES, MATERIAL)
+    # 7. TEST REAL SKILLS INTEGRITY (45 SKILLS: ORCHESTRATOR, FINANCE, SALES, MATERIAL, HR)
     # =========================================================================
     def test_07_real_skills_integrity(self):
-        """Menguji integritas seluruh 34 file skill nyata di direktori skills/ (Opsi C)."""
+        """Menguji integritas seluruh 45 file skill nyata di direktori skills/ (Opsi C)."""
         all_skills = load_all_skills(force_reload=True)
         
-        # Total harus 34 skills (3 Orchestrator + 11 Finance + 10 Sales + 10 Material)
-        self.assertEqual(len(all_skills), 34, f"Ekspektasi 34 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
+        # Total harus 45 skills (3 Orchestrator + 11 Finance + 10 Sales + 10 Material + 11 HR)
+        self.assertEqual(len(all_skills), 45, f"Ekspektasi 45 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
 
-        # Pastikan validasi seluruh tools_required (100% dari 34 skills) valid di _TOOL_REGISTRY
+        # Pastikan validasi seluruh tools_required (100% dari 45 skills) valid di _TOOL_REGISTRY
         validation = validate_skill_dependencies()
         self.assertTrue(validation["valid"], f"Ada missing tools pada skills: {validation.get('missing_tools')}")
         self.assertEqual(len(validation["missing_tools"]), 0)
