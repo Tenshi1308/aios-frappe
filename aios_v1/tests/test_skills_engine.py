@@ -1,7 +1,7 @@
 """
-Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.8).
+Unit Test Suite untuk AIOS Skills Engine & Loader (Role-Centric Architecture Opsi C - Tahap 6M.1 s/d 6M.9).
 Menguji parser YAML frontmatter, path discovery hierarki <branch>/<role>/, smart caching, resolusi RBAC per role,
-serta integritas 61 skills aktif di Orchestrator, Finance, Sales, Material, HR, Manufacturing, dan Quality.
+serta integritas 70 skills aktif di Orchestrator, Finance, Sales, Material, HR, Manufacturing, Quality, dan Logistics.
 """
 
 import os
@@ -50,25 +50,25 @@ class TestSkillsEngine(unittest.TestCase):
     def test_01_parse_frontmatter_valid_and_edge_cases(self):
         """Memastikan parser YAML frontmatter memisahkan header dan body secara presisi."""
         raw_md = """---
-name: "Inspection Lot and Sampling"
-slug: "inspection-lot-and-sampling"
+name: "Freight Cost Optimization"
+slug: "freight-cost-optimization"
 version: "1.0.0"
-branch: "quality"
-role: "quality_inspector"
+branch: "logistics"
+role: "logistics_coordinator"
 tools_required:
-  - "create_inspection_lot"
+  - "calculate_shipping_cost"
 triggers:
-  - "sampling aql"
+  - "hitung ongkir"
 priority: "high"
 ---
 
 # 1. Peran & Tujuan Bisnis
-Mengatur rencana sampling pengujian mutu.
+Menghitung ongkos kirim kargo.
 """
         metadata, body = parse_frontmatter(raw_md)
-        self.assertEqual(metadata.get("name"), "Inspection Lot and Sampling")
-        self.assertEqual(metadata.get("slug"), "inspection-lot-and-sampling")
-        self.assertEqual(metadata.get("role"), "quality_inspector")
+        self.assertEqual(metadata.get("name"), "Freight Cost Optimization")
+        self.assertEqual(metadata.get("slug"), "freight-cost-optimization")
+        self.assertEqual(metadata.get("role"), "logistics_coordinator")
         self.assertEqual(len(metadata.get("tools_required", [])), 1)
         self.assertIn("# 1. Peran & Tujuan Bisnis", body)
 
@@ -78,72 +78,67 @@ Mengatur rencana sampling pengujian mutu.
     def test_02_load_skill_from_file_hierarchy(self):
         """Memastikan load_skill_from_file mengekstrak branch dan role dari hierarki direktori."""
         content = """---
-name: "SPC Analysis"
-slug: "spc-analysis"
+name: "Route Planning"
+slug: "route-planning"
 version: "1.0.0"
 tools_required:
-  - "run_spc_analysis"
+  - "plan_shipment_route"
 priority: "high"
 ---
 # Content SOP
-Analisis kapabilitas Cpk.
+Perencanaan rute truk.
 """
-        file_path = self._create_sample_skill_file("quality", "quality_engineer", "spc.md", content)
+        file_path = self._create_sample_skill_file("logistics", "logistics_coordinator", "route.md", content)
         skill = load_skill_from_file(file_path)
 
         self.assertIsNotNone(skill)
-        self.assertEqual(skill["name"], "SPC Analysis")
-        self.assertEqual(skill["branch"], "quality")
-        self.assertEqual(skill["role"], "quality_engineer")
-        self.assertIn("quality_engineer", skill["roles"])
+        self.assertEqual(skill["name"], "Route Planning")
+        self.assertEqual(skill["branch"], "logistics")
+        self.assertEqual(skill["role"], "logistics_coordinator")
+        self.assertIn("logistics_coordinator", skill["roles"])
         self.assertEqual(skill["priority"], "high")
-        self.assertIn("run_spc_analysis", skill["tools_required"])
+        self.assertIn("plan_shipment_route", skill["tools_required"])
 
     # =========================================================================
     # 3. TEST ROLE VARIANT NORMALIZATION
     # =========================================================================
     def test_03_normalize_role_variants(self):
         """Memastikan variasi nama peran (kebab-case, snake_case, space-case) dikenali setara."""
-        variants_kebab = _normalize_role_variants("quality-control-officer")
-        self.assertIn("quality-control-officer", variants_kebab)
-        self.assertIn("quality_control_officer", variants_kebab)
-        self.assertIn("quality control officer", variants_kebab)
+        variants_kebab = _normalize_role_variants("logistics-coordinator")
+        self.assertIn("logistics-coordinator", variants_kebab)
+        self.assertIn("logistics_coordinator", variants_kebab)
+        self.assertIn("logistics coordinator", variants_kebab)
 
     # =========================================================================
-    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (QUALITY & CROSS-BRANCH)
+    # 4. TEST ROLE-CENTRIC RBAC DISCOVERY (LOGISTICS & CROSS-BRANCH)
     # =========================================================================
     def test_04_get_skills_for_worker_rbac_option_c(self):
-        """Menguji pemisahan hak akses peran mandiri (Role-Centric Quality)."""
-        # 1. Quality Inspector (2 skills di quality/quality_inspector/)
-        ins_skills = get_skills_for_worker(branch="quality", worker_key="quality_inspector")
-        ins_slugs = [s["slug"] for s in ins_skills]
-        self.assertEqual(len(ins_slugs), 2)
-        self.assertIn("inspection-lot-and-sampling", ins_slugs)
-        self.assertIn("measurement-recording-and-calibration", ins_slugs)
-        self.assertNotIn("usage-decision-and-coa-issuance", ins_slugs)
+        """Menguji pemisahan hak akses peran mandiri (Role-Centric Logistics)."""
+        # 1. Shipping Clerk (2 skills di logistics/shipping_clerk/)
+        shp_skills = get_skills_for_worker(branch="logistics", worker_key="shipping_clerk")
+        shp_slugs = [s["slug"] for s in shp_skills]
+        self.assertEqual(len(shp_slugs), 2)
+        self.assertIn("inbound-and-outbound-delivery-order", shp_slugs)
+        self.assertIn("warehouse-goods-movement-and-pod", shp_slugs)
+        self.assertNotIn("route-planning-and-tracking", shp_slugs)
 
-        # 2. Quality Control Officer (2 skills di quality/quality_control_officer/)
-        qco_skills = get_skills_for_worker(branch="quality", worker_key="quality_control_officer")
-        qco_slugs = [s["slug"] for s in qco_skills]
-        self.assertEqual(len(qco_slugs), 2)
-        self.assertIn("usage-decision-and-coa-issuance", qco_slugs)
-        self.assertIn("quality-notification-and-ncr", qco_slugs)
+        # 2. Logistics Coordinator (3 skills di logistics/logistics_coordinator/)
+        crd_skills = get_skills_for_worker(branch="logistics", worker_key="logistics_coordinator")
+        crd_slugs = [s["slug"] for s in crd_skills]
+        self.assertEqual(len(crd_slugs), 3)
+        self.assertIn("route-planning-and-tracking", crd_slugs)
+        self.assertIn("freight-cost-and-load-optimization", crd_slugs)
+        self.assertIn("courier-integration-and-cross-docking", crd_slugs)
 
-        # 3. Quality Engineer (2 skills di quality/quality_engineer/)
-        qen_skills = get_skills_for_worker(branch="quality", worker_key="quality_engineer")
-        qen_slugs = [s["slug"] for s in qen_skills]
-        self.assertEqual(len(qen_slugs), 2)
-        self.assertIn("spc-and-process-capability-analysis", qen_slugs)
-        self.assertIn("first-pass-yield-and-capa-tracking", qen_slugs)
+        # 3. Fleet Manager (2 skills di logistics/fleet_manager/)
+        flt_skills = get_skills_for_worker(branch="logistics", worker_key="fleet_manager")
+        flt_slugs = [s["slug"] for s in flt_skills]
+        self.assertEqual(len(flt_slugs), 2)
+        self.assertIn("vehicle-maintenance-and-fuel-log", flt_slugs)
+        self.assertIn("driver-assignment-and-dispatch", flt_slugs)
 
-        # 4. Quality Auditor (1 skill di quality/quality_auditor/)
-        aud_skills = get_skills_for_worker(branch="quality", worker_key="quality_auditor")
-        aud_slugs = [s["slug"] for s in aud_skills]
-        self.assertEqual(len(aud_slugs), 1)
-        self.assertIn("internal-audit-and-findings-reporting", aud_slugs)
-
-        # 5. Quality Manager (9 skills Quality + 3 skills Orchestrator = 12 skills)
-        mgr_skills = get_skills_for_worker(branch="quality", worker_key="manager")
+        # 4. Logistics Manager (9 skills Logistics + 3 skills Orchestrator = 12 skills)
+        mgr_skills = get_skills_for_worker(branch="logistics", worker_key="manager")
         self.assertEqual(len(mgr_skills), 12)
 
     # =========================================================================
@@ -152,9 +147,9 @@ Analisis kapabilitas Cpk.
     def test_05_validate_skill_dependencies(self):
         """Memastikan validasi dependensi tools_required mencocokkan ke _TOOL_REGISTRY."""
         valid_skill = {
-            "name": "Quality Test",
-            "slug": "test-valid-qa",
-            "tools_required": ["run_spc_analysis", "make_usage_decision"]
+            "name": "Logistics Test",
+            "slug": "test-valid-log",
+            "tools_required": ["calculate_shipping_cost", "plan_shipment_route"]
         }
         res_valid = validate_skill_dependencies(valid_skill)
         self.assertTrue(res_valid["valid"])
@@ -165,25 +160,25 @@ Analisis kapabilitas Cpk.
     # =========================================================================
     def test_06_compose_worker_system_prompt(self):
         """Memastikan perakitan SOP ke dalam prompt berjalan rapi."""
-        base_prompt = "Anda adalah Quality Engineer profesional."
-        composed = compose_worker_system_prompt(branch="quality", worker_key="quality_engineer", base_prompt=base_prompt)
+        base_prompt = "Anda adalah Logistics Coordinator berpengalaman."
+        composed = compose_worker_system_prompt(branch="logistics", worker_key="logistics_coordinator", base_prompt=base_prompt)
 
-        self.assertIn("Anda adalah Quality Engineer profesional.", composed)
+        self.assertIn("Anda adalah Logistics Coordinator berpengalaman.", composed)
         self.assertIn("[STANDARD OPERATING PROCEDURES & WORKFLOW SKILLS]", composed)
-        self.assertIn("SPC and Process Capability Analysis", composed)
-        self.assertIn("First Pass Yield and CAPA Tracking", composed)
+        self.assertIn("Route Planning and Tracking", composed)
+        self.assertIn("Freight Cost and Load Optimization", composed)
 
     # =========================================================================
-    # 7. TEST REAL SKILLS INTEGRITY (61 SKILLS AKTIF)
+    # 7. TEST REAL SKILLS INTEGRITY (70 SKILLS AKTIF)
     # =========================================================================
     def test_07_real_skills_integrity(self):
-        """Menguji integritas seluruh 61 file skill nyata di direktori skills/ (Opsi C)."""
+        """Menguji integritas seluruh 70 file skill nyata di direktori skills/ (Opsi C)."""
         all_skills = load_all_skills(force_reload=True)
         
-        # Total harus 61 skills (3 Orch + 11 Fin + 10 Sales + 10 Mat + 11 HR + 7 Mfg + 9 QA)
-        self.assertEqual(len(all_skills), 61, f"Ekspektasi 61 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
+        # Total harus 70 skills (3 Orch + 11 Fin + 10 Sales + 10 Mat + 11 HR + 7 Mfg + 9 QA + 9 Log)
+        self.assertEqual(len(all_skills), 70, f"Ekspektasi 70 skills, ditemukan {len(all_skills)}: {list(all_skills.keys())}")
 
-        # Pastikan validasi seluruh tools_required (100% dari 61 skills) valid di _TOOL_REGISTRY
+        # Pastikan validasi seluruh tools_required (100% dari 70 skills) valid di _TOOL_REGISTRY
         validation = validate_skill_dependencies()
         self.assertTrue(validation["valid"], f"Ada missing tools pada skills: {validation.get('missing_tools')}")
         self.assertEqual(len(validation["missing_tools"]), 0)
