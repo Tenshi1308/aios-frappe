@@ -27,7 +27,7 @@ def get_llm_config():
             "timeout": 90.0
         }
 
-def chat_stream(messages, max_tokens=2048, temperature=None):
+def chat_stream(messages, max_tokens=4096, temperature=None):
     cfg = get_llm_config()
     url = f"{cfg['base_url']}/chat/completions"
     headers = {
